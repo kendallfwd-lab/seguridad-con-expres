@@ -2,7 +2,7 @@
 create extension if not exists pgcrypto;
 
 create schema if not exists app_private;
-revoke all on schema app_private from public, anon, authenticated;
+revoke all on schema app_private from public;
 
 create type app_private.user_role as enum ('user', 'admin');
 create type app_private.user_status as enum ('active', 'disabled', 'pending_verification');
@@ -129,6 +129,21 @@ for each row execute function app_private.set_updated_at();
 create trigger mfa_settings_set_updated_at before update on app_private.mfa_settings
 for each row execute function app_private.set_updated_at();
 
-revoke all on all tables in schema app_private from public, anon, authenticated;
-revoke all on all sequences in schema app_private from public, anon, authenticated;
-revoke all on all functions in schema app_private from public, anon, authenticated;
+revoke all on all tables in schema app_private from public;
+revoke all on all sequences in schema app_private from public;
+revoke all on all functions in schema app_private from public;
+do $$
+begin
+  if exists (select 1 from pg_roles where rolname = 'anon') then
+    execute 'revoke all on schema app_private from anon';
+    execute 'revoke all on all tables in schema app_private from anon';
+    execute 'revoke all on all sequences in schema app_private from anon';
+    execute 'revoke all on all functions in schema app_private from anon';
+  end if;
+  if exists (select 1 from pg_roles where rolname = 'authenticated') then
+    execute 'revoke all on schema app_private from authenticated';
+    execute 'revoke all on all tables in schema app_private from authenticated';
+    execute 'revoke all on all sequences in schema app_private from authenticated';
+    execute 'revoke all on all functions in schema app_private from authenticated';
+  end if;
+end $$;
