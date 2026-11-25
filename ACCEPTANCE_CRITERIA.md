@@ -1,0 +1,11 @@
+# Criterios verificables
+- [ ] psql --version y pg_isready exitosos; SELECT 1 ejecutado con rol runtime local.
+- [ ] No existe dependencia mysql2 ni SQL activo de MySQL; migraciones reproducibles en DB de pruebas vacía.
+- [ ] Registro, login, notas y auditoría persisten tras reiniciar; administración autorizada.
+- [ ] Tests verifican 401, 403, 404, 400, 429 y consultas parametrizadas; registro no permite rol admin.
+- [ ] Refresh rotado, replay revocado y logout invalidan sesión; concurrencia probada.
+- [ ] Verificación, recuperación y MFA probadas, incluyendo expiración, uso único y fallos; SMTP real requerido para producción.
+- [ ] Frontend build y E2E exitosos; no secretos en bundle, logs ni git.
+- [ ] Supabase: proyecto confirmado, migraciones aplicadas, SELECT 1 con TLS, runtime sin DDL y tablas privadas no expuestas.
+- [ ] Vercel: URL HTTPS real, health responde, login y consulta autorizada desde frontend; cookies y rate limit persistente verificados.
+- [ ] Documentación, diagrama ER, OpenAPI, Postman, comandos reproducibles y evidencia. Marcar blocked cualquier criterio no verificado.
