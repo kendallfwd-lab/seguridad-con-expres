@@ -24,3 +24,7 @@
 - Express se separó en `src/app.js` y `src/server.js`; se añadió pool `pg`, validación Zod de entorno, queries parametrizadas `$n`, ownership y rotación de refresh token bajo transacción y bloqueo de fila.
 - Verificación realizada: `node --check` para los módulos modificados y `npm test` (3 pruebas unitarias aprobadas).
 - Pendiente: aplicar la migración y ejecutar integración/E2E contra PostgreSQL real; bloqueado por la instalación local pendiente.
+
+## 2026-11-25 — Alternativa Docker comprobada
+
+- `docker info` no pudo conectarse al daemon (`//./pipe/docker_engine` no existe); Docker Desktop no está iniciado o no está disponible para esta sesión. Por tanto, no se utilizó un contenedor como sustituto simulado de PostgreSQL local.
