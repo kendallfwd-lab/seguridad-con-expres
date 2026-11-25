@@ -1,46 +1,10 @@
-import 'dotenv/config';
-import express from 'express';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import cookieParser from 'cookie-parser';
-import {z,ZodError} from 'zod';
-import crypto from 'node:crypto';
-import {db} from './db.js';
-import {hashPassword,verifyPassword,digest,randomToken,signAccess,verifyAccess,requireRole,checkConfig} from './security.js';
-checkConfig();
-const app=express();
-const origin=process.env.APP_ORIGIN||'http://localhost:5173';
-const production=process.env.NODE_ENV==='production';
-const cookieOptions={httpOnly:true,secure:production,sameSite:'strict',path:'/api/auth'};
-const fakeHash=await hashPassword(randomToken());
-const audit=(id,event)=>db.execute('INSERT INTO audit_log(user_id,event) VALUES (?,?)',[id,event]);
-app.disable('x-powered-by');
-app.use(helmet({strictTransportSecurity:production?undefined:false}));
-app.use(express.json({limit:'16kb'}));
-app.use(cookieParser());
-app.use('/api',(req,res,next)=>{res.set('Cache-Control','no-store');if(!['GET','HEAD','OPTIONS'].includes(req.method)&&req.get('origin')!==origin)return res.status(403).json({error:'Origen no autorizado'});next();});
-app.use('/api',rateLimit({windowMs:60000,limit:120,standardHeaders:'draft-7',legacyHeaders:false}));
-const loginLimit=rateLimit({windowMs:900000,limit:5,standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Demasiados intentos. Intenta en 15 minutos.'}});
-const accountLimit=rateLimit({windowMs:900000,limit:5,keyGenerator:req=>String(req.body?.email||'').trim().toLowerCase().slice(0,254),standardHeaders:'draft-7',legacyHeaders:false,message:{error:'Demasiados intentos'}});
-const email=z.string().trim().email().max(254).transform(s=>s.toLowerCase());
-const loginSchema=z.object({email,password:z.string().min(1).max(128)}).strict();
-const registerSchema=z.object({email,password:z.string().min(15).max(128)}).strict();
-const blocked=new Set(['password123456789','123456789012345','qwertyuiopasdfgh','contraseña123456']);
-const idSchema=z.coerce.number().int().positive().safe();
-async function issue(conn,user,family){const token=randomToken();await conn.execute('INSERT INTO refresh_tokens(token_hash,user_id,family,expires_at) VALUES (?,?,?,DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY))',[digest(token),user.id,family]);return token;}
-function respond(res,user,family,token){res.cookie('refresh',token,{...cookieOptions,maxAge:7*86400000});res.json({accessToken:signAccess(user,family),user:{id:user.id,email:user.email,role:user.role}});}
-async function auth(req,res,next){let claims;try{const [scheme,token,extra]=(req.get('authorization')||'').split(' ');if(scheme!=='Bearer'||!token||extra)throw Error();claims=verifyAccess(token);}catch{return res.status(401).json({error:'Token inválido o vencido'});}const [rows]=await db.execute('SELECT u.id,u.email,u.role FROM users u WHERE u.id=? AND EXISTS (SELECT 1 FROM refresh_tokens r WHERE r.user_id=u.id AND r.family=? AND r.revoked_at IS NULL AND r.used_at IS NULL AND r.expires_at>UTC_TIMESTAMP())',[claims.sub,claims.sid]);if(!rows.length)return res.status(401).json({error:'Sesión revocada'});req.user=rows[0];req.family=claims.sid;next();}
-app.get('/api/health',async(req,res)=>{await db.query('SELECT 1');res.json({ok:true});});
-app.post('/api/auth/register',loginLimit,async(req,res)=>{const data=registerSchema.parse(req.body);if(blocked.has(data.password.toLowerCase()))return res.status(400).json({error:'Contraseña común'});const hash=await hashPassword(data.password);try{const [r]=await db.execute('INSERT INTO users(email,password_hash) VALUES (?,?)',[data.email,hash]);await audit(r.insertId,'REGISTER');}catch(e){if(e.code!=='ER_DUP_ENTRY')throw e;}res.status(202).json({message:'Solicitud procesada. Puedes intentar iniciar sesión.'});});
-app.post('/api/auth/login',loginLimit,accountLimit,async(req,res)=>{const data=loginSchema.parse(req.body);const [rows]=await db.execute('SELECT * FROM users WHERE email=?',[data.email]);const user=rows[0];const ok=await verifyPassword(user?.password_hash||fakeHash,data.password);if(!user||!ok){await audit(user?.id||null,'LOGIN_FAILED');return res.status(401).json({error:'Credenciales inválidas'});}const family=crypto.randomUUID();const token=await issue(db,user,family);await audit(user.id,'LOGIN');respond(res,user,family,token);});
-app.post('/api/auth/refresh',async(req,res)=>{const token=req.cookies.refresh;if(typeof token!=='string')return res.sendStatus(401);const c=await db.getConnection();try{await c.beginTransaction();const [rows]=await c.execute('SELECT r.*,u.email,u.role,u.id FROM refresh_tokens r JOIN users u ON u.id=r.user_id WHERE token_hash=? FOR UPDATE',[digest(token)]);const r=rows[0];if(!r){await c.rollback();return res.sendStatus(401);}if(r.used_at){await c.execute('UPDATE refresh_tokens SET revoked_at=UTC_TIMESTAMP() WHERE family=?',[r.family]);await c.commit();res.clearCookie('refresh',cookieOptions);await audit(r.user_id,'TOKEN_REUSE');return res.sendStatus(401);}if(r.revoked_at||new Date(r.expires_at)<=new Date()){await c.rollback();return res.sendStatus(401);}await c.execute('UPDATE refresh_tokens SET used_at=UTC_TIMESTAMP() WHERE token_hash=?',[digest(token)]);const next=await issue(c,r,r.family);await c.commit();respond(res,r,r.family,next);}catch(e){await c.rollback();throw e;}finally{c.release();}});
-app.post('/api/auth/logout',async(req,res)=>{const token=req.cookies.refresh;if(typeof token==='string'){const [rows]=await db.execute('SELECT family,user_id FROM refresh_tokens WHERE token_hash=?',[digest(token)]);if(rows[0]){await db.execute('UPDATE refresh_tokens SET revoked_at=UTC_TIMESTAMP() WHERE family=?',[rows[0].family]);await audit(rows[0].user_id,'LOGOUT');}}res.clearCookie('refresh',cookieOptions).sendStatus(204);});
-app.get('/api/me',auth,(req,res)=>res.json(req.user));
-app.get('/api/notes',auth,async(req,res)=>{const [rows]=await db.execute('SELECT id,content FROM notes WHERE user_id=? ORDER BY id DESC',[req.user.id]);res.json(rows);});
-app.post('/api/notes',auth,async(req,res)=>{const {content}=z.object({content:z.string().trim().min(1).max(500)}).strict().parse(req.body);const [r]=await db.execute('INSERT INTO notes(user_id,content) VALUES (?,?)',[req.user.id,content]);res.status(201).json({id:r.insertId,content});});
-app.delete('/api/notes/:id',auth,async(req,res)=>{const id=idSchema.parse(req.params.id);const [r]=await db.execute('DELETE FROM notes WHERE id=? AND user_id=?',[id,req.user.id]);res.sendStatus(r.affectedRows?204:404);});
-app.get('/api/admin/users',auth,requireRole('admin'),async(req,res)=>{const [r]=await db.execute('SELECT id,email,role,created_at FROM users ORDER BY id LIMIT 100');res.json(r);});
-app.get('/api/admin/audit',auth,requireRole('admin'),async(req,res)=>{const [r]=await db.execute('SELECT * FROM audit_log ORDER BY id DESC LIMIT 100');res.json(r);});
-app.use((req,res)=>res.status(404).json({error:'Ruta no encontrada'}));
-app.use((err,req,res,next)=>{if(err instanceof ZodError)return res.status(400).json({error:'Datos inválidos',issues:err.issues.map(i=>({field:i.path.join('.'),message:i.message}))});if(err.status===400||err.status===413)return res.status(err.status).json({error:'Petición inválida'});console.error('Error interno:',err.code||err.name);res.status(500).json({error:'Error interno'});});
-await db.query('SELECT 1');app.listen(Number(process.env.PORT||3001),'127.0.0.1',()=>console.log('API lista'));
+import { createApp } from './app.js';
+import { createPool, checkDatabase } from './config/database.js';
+import { loadEnv } from './config/env.js';
+
+const env = loadEnv();
+const pool = createPool(env);
+await checkDatabase(pool);
+const app = await createApp({ pool, env });
+const server = app.listen(env.PORT, '127.0.0.1', () => console.log(`Security Lab API listening on ${env.PORT}`));
+for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => server.close(() => pool.end()));

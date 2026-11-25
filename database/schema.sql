@@ -1,30 +1,5 @@
-CREATE DATABASE IF NOT EXISTS security_lab CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE security_lab;
-CREATE TABLE IF NOT EXISTS users (
- id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
- email VARCHAR(254) NOT NULL UNIQUE,
- password_hash VARCHAR(255) NOT NULL,
- role ENUM('user','admin') NOT NULL DEFAULT 'user',
- created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-CREATE TABLE IF NOT EXISTS refresh_tokens (
- token_hash CHAR(64) PRIMARY KEY,
- user_id BIGINT UNSIGNED NOT NULL,
- family CHAR(36) NOT NULL,
- expires_at DATETIME NOT NULL,
- used_at DATETIME NULL,
- revoked_at DATETIME NULL,
- FOREIGN KEY(user_id) REFERENCES users(id), INDEX(family)
-);
-CREATE TABLE IF NOT EXISTS notes (
- id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
- user_id BIGINT UNSIGNED NOT NULL,
- content VARCHAR(500) NOT NULL,
- FOREIGN KEY(user_id) REFERENCES users(id)
-);
-CREATE TABLE IF NOT EXISTS audit_log (
- id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
- user_id BIGINT UNSIGNED NULL,
- event VARCHAR(80) NOT NULL,
- created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- PostgreSQL schema source of truth:
+-- ../supabase/migrations/20261125153217_initial_security_schema.sql
+--
+-- Apply the versioned migration through the Supabase CLI or psql; this legacy
+-- location is retained only so previous setup documentation has a clear path.

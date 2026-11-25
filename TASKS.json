@@ -18,28 +18,31 @@
     {
       "id": 2,
       "name": "install_tools",
-      "status": "in_progress",
-      "evidence": [],
-      "blocker": null
+      "status": "blocked",
+      "evidence": [
+        "Chocolatey 2.7.3 package discovery found postgresql17 17.12.2 and pgadmin4 9.19.0",
+        "Installation attempt on 2026-11-25 was rejected because the process was not elevated and Windows reports a pending reboot"
+      ],
+      "blocker": "Requires an elevated Administrator PowerShell session after any required Windows restart."
     },
     {
       "id": 3,
       "name": "postgres_local",
-      "status": "pending",
+      "status": "blocked",
       "evidence": [],
-      "blocker": null
+      "blocker": "PostgreSQL installation is blocked pending elevated Administrator session."
     },
     {
       "id": 4,
       "name": "migrate_schema_backend",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": [],
       "blocker": null
     },
     {
       "id": 5,
       "name": "security_controls",
-      "status": "pending",
+      "status": "in_progress",
       "evidence": [],
       "blocker": null
     },
