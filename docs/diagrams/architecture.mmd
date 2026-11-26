@@ -1,0 +1,17 @@
+flowchart LR
+  U["Navegador / Usuario"] -->|"HTTPS / Mismo origen"| EDGE["Vercel Edge / Vite Proxy"]
+  EDGE -->|"GET /* (SPA estática)"| FE["React + Vite SPA\n(frontend/dist)"]
+  EDGE -->|"/api/*"| API["Express 5 API\n(api/index.js / server.js)"]
+
+  subgraph Backend["Capa de Seguridad Express"]
+    MW["Helmet + CORS Allowlist\n+ Cookie Parser + Origin Check"]
+    CSRF["Double-Submit CSRF\n(cookie csrf + X-CSRF-Token)"]
+    AUTH["JWT HS256 (15m)\n+ Refresh Rotation FOR UPDATE"]
+    CRYPTO["Argon2id + AES-256-GCM\n+ TOTP (otplib)"]
+    RL["Rate Limiting Persistente\n(app_private.login_attempts)"]
+  end
+
+  API --> MW --> CSRF --> AUTH --> CRYPTO --> RL
+  API -->|"TLS + CA (Transaction Pooler / pg)"| DB[("PostgreSQL 17\nEsquema app_private")]
+  API -.->|"k-anonymity 5-hex prefix"| HIBP["HIBP Pwned Passwords API"]
+  API -.->|"Solo si SMTP configurado"| SMTP["Servidor SMTP (Nodemailer)"]

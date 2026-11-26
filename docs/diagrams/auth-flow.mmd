@@ -1,0 +1,30 @@
+sequenceDiagram
+  autonumber
+  actor C as Cliente React
+  participant A as Express API
+  participant DB as PostgreSQL (app_private)
+
+  C->>A: POST /api/auth/login {email, password}
+  A->>DB: Verifica rate limit (login_attempts) y lee usuario + mfa_settings
+  A->>A: Argon2id verifyPassword (o fakeHash)
+  alt MFA activado
+    A-->>C: 200 {mfaRequired: true, challengeToken}
+    C->>A: POST /api/auth/mfa/verify-login {challengeToken, code/recoveryCode}
+    A->>DB: BEGIN + pg_advisory_xact_lock + valida TOTP/código único
+    A->>DB: Inserta refresh_token (SHA-256) + audit MFA_LOGIN_VERIFIED + COMMIT
+    A-->>C: 200 {accessToken, user} + Set-Cookie: refresh (HttpOnly), csrf
+  else Sin MFA
+    A->>DB: Inserta refresh_token (SHA-256) + audit LOGIN
+    A-->>C: 200 {accessToken, user} + Set-Cookie: refresh (HttpOnly), csrf
+  end
+
+  C->>A: POST /api/auth/refresh (Cookie: refresh, X-CSRF-Token)
+  A->>DB: BEGIN + SELECT ... FOR UPDATE en refresh_tokens
+  alt Token ya usado (replay)
+    A->>DB: UPDATE refresh_tokens SET revoked_at=now() WHERE family_id=$1
+    A->>DB: Audit TOKEN_REUSE + COMMIT
+    A-->>C: 401 + Clear-Cookie refresh
+  else Token válido
+    A->>DB: Marca used_at=now() e inserta nuevo refresh_token en misma family_id
+    A-->>C: 200 {accessToken, user} + nuevo Set-Cookie refresh
+  end

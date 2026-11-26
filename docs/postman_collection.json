@@ -1,0 +1,165 @@
+{
+  "info": {
+    "name": "Security Lab — Express + PostgreSQL",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Colección reproducible para probar autenticación, CSRF, MFA, notas con ownership, sesiones y RBAC."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5173/api" },
+    { "key": "accessToken", "value": "" },
+    { "key": "csrfToken", "value": "" },
+    { "key": "noteId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health & CSRF",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": { "method": "GET", "url": "{{baseUrl}}/health" }
+        },
+        {
+          "name": "Get CSRF Token",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["const d = pm.response.json(); if (d.csrfToken) pm.collectionVariables.set('csrfToken', d.csrfToken);"],
+              "type": "text/javascript"
+            }
+          }],
+          "request": { "method": "GET", "url": "{{baseUrl}}/csrf" }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/register",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"lab@example.test\",\n  \"password\": \"Correct Horse Battery Staple 2026!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Login",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["const d = pm.response.json(); if (d.accessToken) pm.collectionVariables.set('accessToken', d.accessToken);"],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/auth/login",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"lab@example.test\",\n  \"password\": \"Correct Horse Battery Staple 2026!\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Refresh Session",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-CSRF-Token", "value": "{{csrfToken}}" }],
+            "url": "{{baseUrl}}/auth/refresh"
+          }
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "X-CSRF-Token", "value": "{{csrfToken}}" }],
+            "url": "{{baseUrl}}/auth/logout"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notes (Ownership)",
+      "item": [
+        {
+          "name": "List My Notes",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/notes"
+          }
+        },
+        {
+          "name": "Create Note",
+          "event": [{
+            "listen": "test",
+            "script": {
+              "exec": ["const d = pm.response.json(); if (d.id) pm.collectionVariables.set('noteId', d.id);"],
+              "type": "text/javascript"
+            }
+          }],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/notes",
+            "body": { "mode": "raw", "raw": "{\n  \"title\": \"Nota Postman\",\n  \"content\": \"Contenido protegido por ownership\"\n}" }
+          }
+        },
+        {
+          "name": "Update Note",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": "{{baseUrl}}/notes/{{noteId}}",
+            "body": { "mode": "raw", "raw": "{\n  \"content\": \"Contenido actualizado\"\n}" }
+          }
+        },
+        {
+          "name": "Delete Note",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "X-CSRF-Token", "value": "{{csrfToken}}" }
+            ],
+            "url": "{{baseUrl}}/notes/{{noteId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Admin (RBAC)",
+      "item": [
+        {
+          "name": "List Users (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/admin/users"
+          }
+        },
+        {
+          "name": "List Audit Log (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": "{{baseUrl}}/admin/audit"
+          }
+        }
+      ]
+    }
+  ]
+}

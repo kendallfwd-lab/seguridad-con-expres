@@ -1,0 +1,366 @@
+openapi: 3.1.0
+info:
+  title: Security Lab API
+  version: 1.0.0
+  description: API Express 5 + PostgreSQL (app_private) con Argon2id, JWT, rotación de refresh tokens, MFA TOTP AES-256-GCM, CSRF y RBAC.
+servers:
+  - url: http://localhost:5173/api
+    description: Desarrollo local (proxy Vite mismo origen)
+  - url: /api
+    description: Producción mismo origen
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    csrfHeader:
+      type: apiKey
+      in: header
+      name: X-CSRF-Token
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+    NoteInput:
+      type: object
+      required: [content]
+      properties:
+        title:
+          type: string
+          maxLength: 160
+        content:
+          type: string
+          minLength: 1
+          maxLength: 5000
+    Note:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        content:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+paths:
+  /health:
+    get:
+      summary: Estado del servicio y PostgreSQL
+      responses:
+        '200':
+          description: Servicio saludable
+  /csrf:
+    get:
+      summary: Emite cookie CSRF y retorna token
+      responses:
+        '200':
+          description: Token CSRF emitido
+  /auth/register:
+    post:
+      summary: Registro de usuario
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 15, maxLength: 128 }
+      responses:
+        '202': { description: Solicitud procesada }
+        '400': { description: Validación o contraseña comprometida }
+        '429': { description: Límite de tasa excedido }
+  /auth/verify-email:
+    post:
+      summary: Verifica correo con token de un uso
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        '200': { description: Cuenta activada }
+        '400': { description: Token inválido o expirado }
+  /auth/resend-verification:
+    post:
+      summary: Reenvía token de verificación
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202': { description: Solicitud procesada }
+  /auth/login:
+    post:
+      summary: Inicia sesión o emite desafío MFA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200': { description: Sesión iniciada o mfaRequired }
+        '401': { description: Credenciales inválidas }
+        '429': { description: Bloqueo por intentos fallidos }
+  /auth/mfa/verify-login:
+    post:
+      summary: Completa login MFA con TOTP o código de respaldo
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [challengeToken]
+              properties:
+                challengeToken: { type: string }
+                code: { type: string }
+                recoveryCode: { type: string }
+      responses:
+        '200': { description: Sesión iniciada }
+        '401': { description: Código o desafío inválido }
+        '429': { description: Demasiados intentos MFA }
+  /auth/refresh:
+    post:
+      summary: Rota refresh token y emite nuevo accessToken
+      security:
+        - csrfHeader: []
+      responses:
+        '200': { description: Sesión renovada }
+        '401': { description: Token ausente, vencido o reutilizado }
+        '403': { description: CSRF inválido }
+  /auth/logout:
+    post:
+      summary: Revoca familia de sesión y limpia cookie
+      security:
+        - csrfHeader: []
+      responses:
+        '204': { description: Sesión cerrada }
+  /auth/forgot-password:
+    post:
+      summary: Solicita token de restablecimiento de contraseña
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        '202': { description: Solicitud procesada }
+  /auth/reset-password:
+    post:
+      summary: Restablece contraseña con token único
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token: { type: string }
+                newPassword: { type: string, minLength: 15, maxLength: 128 }
+      responses:
+        '200': { description: Contraseña restablecida }
+        '400': { description: Token o contraseña inválida }
+  /auth/change-password:
+    post:
+      summary: Cambia contraseña autenticado (requiere contraseña actual)
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      responses:
+        '200': { description: Contraseña actualizada }
+        '401': { description: Reautenticación fallida }
+  /me:
+    get:
+      summary: Perfil autenticado
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Datos del usuario }
+        '401': { description: No autenticado }
+  /mfa/status:
+    get:
+      summary: Estado MFA del usuario
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Estado MFA }
+  /mfa/setup:
+    post:
+      summary: Genera secreto TOTP cifrado (requiere contraseña actual)
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      responses:
+        '200': { description: Secreto y otpauthUri }
+  /mfa/verify-setup:
+    post:
+      summary: Activa MFA y entrega 8 códigos de respaldo
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      responses:
+        '200': { description: MFA habilitado }
+  /mfa/recovery-codes/regenerate:
+    post:
+      summary: Regenera códigos de respaldo
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      responses:
+        '200': { description: Nuevos códigos }
+  /mfa/disable:
+    post:
+      summary: Desactiva MFA tras reautenticación y código
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      responses:
+        '200': { description: MFA desactivado }
+  /sessions:
+    get:
+      summary: Lista familias de sesión activas
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Sesiones activas }
+  /sessions/revoke-others:
+    post:
+      summary: Revoca todas las demás sesiones activas
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      responses:
+        '200': { description: Sesiones revocadas }
+  /sessions/{familyId}:
+    delete:
+      summary: Revoca una sesión específica
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      parameters:
+        - name: familyId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Sesión revocada }
+        '404': { description: Sesión no encontrada }
+  /notes:
+    get:
+      summary: Lista notas del usuario
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Lista de notas }
+    post:
+      summary: Crea nota privada
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/NoteInput' }
+      responses:
+        '201': { description: Nota creada }
+  /notes/{id}:
+    get:
+      summary: Obtiene nota propia por UUID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Nota encontrada }
+        '404': { description: No existe o no pertenece al usuario }
+    patch:
+      summary: Actualiza nota propia
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Nota actualizada }
+        '404': { description: No existe o no pertenece al usuario }
+    delete:
+      summary: Elimina nota propia
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Eliminada }
+        '404': { description: No existe o no pertenece al usuario }
+  /admin/users:
+    get:
+      summary: Lista usuarios (solo admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Lista de usuarios }
+        '403': { description: Permiso insuficiente }
+  /admin/users/{id}:
+    patch:
+      summary: Actualiza estado o rol de usuario (solo admin)
+      security:
+        - bearerAuth: []
+          csrfHeader: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200': { description: Usuario actualizado }
+        '403': { description: Permiso insuficiente }
+  /admin/audit:
+    get:
+      summary: Consulta bitácora de auditoría (solo admin)
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Registros de auditoría }
+        '403': { description: Permiso insuficiente }

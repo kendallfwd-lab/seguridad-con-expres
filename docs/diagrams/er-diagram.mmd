@@ -1,0 +1,93 @@
+erDiagram
+  users ||--o{ refresh_tokens : "posee sesiones"
+  users ||--o{ notes : "es propietario"
+  users ||--o{ audit_log : "genera eventos"
+  users ||--o{ password_reset_tokens : "solicita reset"
+  users ||--o{ email_verification_tokens : "verifica correo"
+  users ||--o| mfa_settings : "configura TOTP"
+  users ||--o{ mfa_recovery_codes : "genera respaldos"
+
+  users {
+    uuid id PK
+    text email
+    text email_normalized UK
+    text password_hash
+    user_role role
+    user_status status
+    timestamptz email_verified_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  refresh_tokens {
+    uuid id PK
+    uuid user_id FK
+    char_64 token_hash UK
+    uuid family_id
+    timestamptz expires_at
+    timestamptz used_at
+    timestamptz revoked_at
+    timestamptz created_at
+  }
+
+  notes {
+    uuid id PK
+    uuid user_id FK
+    text title
+    text content
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  audit_log {
+    bigint id PK
+    uuid user_id FK
+    text event_type
+    inet ip_address
+    text user_agent
+    jsonb metadata
+    timestamptz created_at
+  }
+
+  password_reset_tokens {
+    uuid id PK
+    uuid user_id FK
+    char_64 token_hash UK
+    timestamptz expires_at
+    timestamptz used_at
+    timestamptz created_at
+  }
+
+  email_verification_tokens {
+    uuid id PK
+    uuid user_id FK
+    char_64 token_hash UK
+    timestamptz expires_at
+    timestamptz used_at
+    timestamptz created_at
+  }
+
+  mfa_settings {
+    uuid user_id PK,FK
+    jsonb encrypted_secret
+    boolean enabled
+    timestamptz enabled_at
+    timestamptz created_at
+    timestamptz updated_at
+  }
+
+  mfa_recovery_codes {
+    uuid id PK
+    uuid user_id FK
+    char_64 code_hash UK
+    timestamptz used_at
+    timestamptz created_at
+  }
+
+  login_attempts {
+    bigint id PK
+    text account_identifier
+    inet ip_address
+    boolean success
+    timestamptz created_at
+  }
